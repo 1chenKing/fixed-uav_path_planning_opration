@@ -159,6 +159,7 @@ class SituationView(QWidget):
         self.planned_path = []
         self.regroup_points = []
         self.staging_points = []
+        self.staging_path = []
         self.vehicle_errors = {}
         self.layering_zone = None
         self.altitude_assignments = {}
@@ -205,6 +206,7 @@ class SituationView(QWidget):
         planned_path=None,
         regroup_points=None,
         staging_points=None,
+        staging_path=None,
         layering_zone=None,
         altitude_assignments=None,
         altitude_levels=None,
@@ -225,6 +227,7 @@ class SituationView(QWidget):
         self.planned_path = list(planned_path or [])
         self.regroup_points = list(regroup_points or [])
         self.staging_points = list(staging_points or [])
+        self.staging_path = list(staging_path or staging_points or [])
         self.vehicle_errors = dict(getattr(self, "vehicle_errors", {}))
         self.layering_zone = dict(layering_zone) if layering_zone else None
         self.altitude_assignments = dict(altitude_assignments or {})
@@ -453,7 +456,8 @@ class SituationView(QWidget):
             stage_pen = QPen(QColor("#c77dff"), 2)
             stage_pen.setStyle(Qt.DashLine)
             painter.setPen(stage_pen)
-            for first, second in zip(self.staging_points[:-1], self.staging_points[1:]):
+            stage_polyline = self.staging_path if len(self.staging_path) >= 2 else self.staging_points
+            for first, second in zip(stage_polyline[:-1], stage_polyline[1:]):
                 start = self._world_to_pixel(first["x"], first["y"])
                 end = self._world_to_pixel(second["x"], second["y"])
                 painter.drawLine(start, end)
@@ -676,6 +680,7 @@ class SwarmControlWidget(QWidget):
         self._planned_task_path = []
         self._regroup_points = []
         self._launch_staging_points = []
+        self._launch_staging_path = []
         self._plan_vehicle_routes = {}
         self._latest_plan_summary = {}
         self._route_mode = "direct"
@@ -2803,9 +2808,11 @@ class SwarmControlWidget(QWidget):
     def _prepend_launch_staging_points(self, route_points, formation_type, spacing):
         if not route_points or not self._vehicle_positions:
             self._launch_staging_points = []
+            self._launch_staging_path = []
             return route_points
         avg_x = sum(position[0] for position in self._vehicle_positions.values()) / float(len(self._vehicle_positions))
         avg_y = sum(position[1] for position in self._vehicle_positions.values()) / float(len(self._vehicle_positions))
+        start_point = {"x": avg_x, "y": avg_y, "z": route_points[0]["z"]}
         first_point = route_points[0]
         approach_dx = first_point["x"] - avg_x
         approach_dy = first_point["y"] - avg_y
@@ -2813,6 +2820,7 @@ class SwarmControlWidget(QWidget):
         if approach_distance < max(spacing * 4.0, 160.0):
             if len(route_points) < 2:
                 self._launch_staging_points = []
+                self._launch_staging_path = []
                 self._formation_stage_hold_distance = 0.0
                 self._formation_stage_release_distance = 0.0
                 return route_points
@@ -2823,53 +2831,107 @@ class SwarmControlWidget(QWidget):
             approach_distance = math.hypot(approach_dx, approach_dy)
         else:
             near_first_point = False
-        heading_rad = math.atan2(approach_dy, approach_dx)
         if formation_type == "column":
-            stage_fractions = (0.28, 0.56, 0.84)
+            stage_fractions = (0.24, 0.52, 0.78)
         elif formation_type == "line":
-            stage_fractions = (0.32, 0.62, 0.88)
+            stage_fractions = (0.22, 0.48, 0.72)
         elif formation_type == "v_shape":
-            stage_fractions = (0.36, 0.68, 0.90)
+            stage_fractions = (0.24, 0.52, 0.78)
         else:
-            stage_fractions = (0.30, 0.60, 0.86)
-        first_distance = approach_distance * stage_fractions[0]
-        second_distance = approach_distance * stage_fractions[1]
-        third_distance = approach_distance * stage_fractions[2]
-        if formation_type == "v_shape" and self._scenario_key == "layered_altitude_demo":
-            self._formation_stage_hold_distance = third_distance
-            self._formation_stage_release_distance = third_distance + max(spacing * 6.0, 220.0)
-        else:
-            self._formation_stage_hold_distance = second_distance
-            self._formation_stage_release_distance = third_distance + max(spacing * 2.5, 80.0)
-        stage_points = [
-            {
-                "x": avg_x + math.cos(heading_rad) * first_distance,
-                "y": avg_y + math.sin(heading_rad) * first_distance,
-                "z": route_points[0]["z"],
-            },
-            {
-                "x": avg_x + math.cos(heading_rad) * second_distance,
-                "y": avg_y + math.sin(heading_rad) * second_distance,
-                "z": route_points[0]["z"],
-            },
-            {
-                "x": avg_x + math.cos(heading_rad) * third_distance,
-                "y": avg_y + math.sin(heading_rad) * third_distance,
-                "z": route_points[0]["z"],
-            },
-        ]
-        if math.hypot(first_point["x"] - stage_points[-1]["x"], first_point["y"] - stage_points[-1]["y"]) < 30.0:
-            self._launch_staging_points = []
-            return route_points
-        self._launch_staging_points = [dict(point) for point in stage_points]
-        combined = list(stage_points)
+            stage_fractions = (0.22, 0.50, 0.75)
         route_tail = route_points[1:] if near_first_point else route_points
-        for point in route_tail:
+        if not route_tail:
+            self._launch_staging_points = []
+            self._launch_staging_path = []
+            return route_points
+        approach_route = self._build_safe_approach_route(start_point, route_tail[0], formation_type, spacing)
+        approach_length = self._route_length_xy(approach_route)
+        if approach_length < max(spacing * 3.0, 120.0):
+            self._launch_staging_points = []
+            self._launch_staging_path = []
+            self._formation_stage_hold_distance = 0.0
+            self._formation_stage_release_distance = 0.0
+            return route_points
+        stage_distances = [approach_length * fraction for fraction in stage_fractions]
+        stage_points = [
+            self._sample_point_at_route_distance_xy(approach_route, distance)
+            for distance in stage_distances
+        ]
+        stage_points = self._dedupe_route_points(stage_points, min_spacing=8.0)
+        if len(stage_points) < 3:
+            self._launch_staging_points = []
+            self._launch_staging_path = []
+            self._formation_stage_hold_distance = 0.0
+            self._formation_stage_release_distance = 0.0
+            return route_points
+        first_stage_distance = stage_distances[0]
+        if formation_type == "column":
+            self._formation_stage_hold_distance = 0.0
+            self._formation_stage_release_distance = 0.0
+        else:
+            self._formation_stage_hold_distance = max(spacing * 0.35, 12.0)
+            self._formation_stage_release_distance = max(
+                stage_distances[2] - first_stage_distance,
+                self._formation_stage_hold_distance + max(spacing * 2.2, 80.0),
+            )
+        stage_path = self._route_points_between_distances_xy(
+            approach_route,
+            stage_distances[0],
+            stage_distances[2],
+            extra_distances=stage_distances[1:2],
+        )
+        self._launch_staging_points = [dict(point) for point in stage_points]
+        self._launch_staging_path = [dict(point) for point in stage_path]
+        combined = [dict(point) for point in stage_path]
+        approach_suffix = self._route_suffix_from_distance_xy(approach_route, stage_distances[2])
+        for point in approach_suffix[1:] if approach_suffix else []:
+            if math.hypot(point["x"] - combined[-1]["x"], point["y"] - combined[-1]["y"]) < 12.0:
+                combined[-1] = dict(point)
+            else:
+                combined.append(dict(point))
+        for point in route_tail[1:]:
             if math.hypot(point["x"] - combined[-1]["x"], point["y"] - combined[-1]["y"]) < 12.0:
                 combined[-1] = dict(point)
             else:
                 combined.append(dict(point))
         return combined
+
+    def _build_safe_approach_route(self, start_point, target_point, formation_type, spacing):
+        if self._planner_mode == "direct_no_avoid" or not self._obstacles:
+            return [dict(start_point), dict(target_point)]
+        margin = self._center_route_margin_for_scenario(formation_type, spacing)
+        cell_size = max(min(spacing * 0.45, 26.0), 12.0)
+        start_xy = self._push_point_out_of_obstacles(
+            (start_point["x"], start_point["y"]),
+            margin,
+            start_point["z"],
+        )
+        target_xy = self._push_point_out_of_obstacles(
+            (target_point["x"], target_point["y"]),
+            margin,
+            target_point["z"],
+        )
+        approach_points = [{"x": start_xy[0], "y": start_xy[1], "z": start_point["z"]}]
+        segment_points, _segment_rerouted = self._astar_segment_route(
+            start_xy,
+            target_xy,
+            target_point["z"],
+            margin,
+            cell_size,
+            force_search=self._planner_mode == "global_astar",
+        )
+        approach_points.extend(segment_points)
+        safe_route = self._make_route_conservative(
+            approach_points,
+            margin,
+            max(spacing * 2.2, 72.0),
+            max(spacing * 0.7, 16.0),
+        )
+        if not safe_route:
+            return [dict(start_point), dict(target_point)]
+        if math.hypot(safe_route[-1]["x"] - target_xy[0], safe_route[-1]["y"] - target_xy[1]) > 10.0:
+            safe_route.append({"x": target_xy[0], "y": target_xy[1], "z": target_point["z"]})
+        return self._dedupe_route_points(safe_route, min_spacing=5.0)
 
     def _densify_route_points(self, route_points, max_segment_length):
         if len(route_points) < 2:
@@ -3281,6 +3343,72 @@ class SwarmControlWidget(QWidget):
             total += math.hypot(second["x"] - first["x"], second["y"] - first["y"])
         return total
 
+    def _sample_point_at_route_distance_xy(self, points, target_distance):
+        if not points:
+            return None
+        if len(points) == 1:
+            return dict(points[0])
+        target_distance = max(0.0, target_distance)
+        walked = 0.0
+        for first, second in zip(points[:-1], points[1:]):
+            segment = math.hypot(second["x"] - first["x"], second["y"] - first["y"])
+            if walked + segment >= target_distance and segment > 1e-6:
+                alpha = (target_distance - walked) / segment
+                return {
+                    "x": first["x"] + alpha * (second["x"] - first["x"]),
+                    "y": first["y"] + alpha * (second["y"] - first["y"]),
+                    "z": first.get("z", 0.0) + alpha * (second.get("z", 0.0) - first.get("z", 0.0)),
+                }
+            walked += segment
+        return dict(points[-1])
+
+    def _route_suffix_from_distance_xy(self, points, start_distance):
+        if not points:
+            return []
+        if len(points) == 1:
+            return [dict(points[0])]
+        suffix_start = self._sample_point_at_route_distance_xy(points, start_distance)
+        suffix = [suffix_start] if suffix_start is not None else []
+        walked = 0.0
+        appended = False
+        for first, second in zip(points[:-1], points[1:]):
+            segment = math.hypot(second["x"] - first["x"], second["y"] - first["y"])
+            segment_end = walked + segment
+            if segment_end >= start_distance:
+                appended = True
+            if appended and (not suffix or math.hypot(second["x"] - suffix[-1]["x"], second["y"] - suffix[-1]["y"]) >= 8.0):
+                suffix.append(dict(second))
+            walked = segment_end
+        return suffix
+
+    def _route_points_between_distances_xy(self, points, start_distance, end_distance, extra_distances=None):
+        if not points:
+            return []
+        start_distance = max(0.0, start_distance)
+        end_distance = max(start_distance, end_distance)
+        total_length = self._route_length_xy(points)
+        end_distance = min(end_distance, total_length)
+        desired_distances = [start_distance, end_distance]
+        for distance in extra_distances or []:
+            if start_distance < distance < end_distance:
+                desired_distances.append(distance)
+        walked = 0.0
+        for first, second in zip(points[:-1], points[1:]):
+            segment = math.hypot(second["x"] - first["x"], second["y"] - first["y"])
+            walked += segment
+            if start_distance < walked < end_distance:
+                desired_distances.append(walked)
+        sampled = []
+        for distance in sorted(desired_distances):
+            point = self._sample_point_at_route_distance_xy(points, distance)
+            if point is None:
+                continue
+            if sampled and math.hypot(point["x"] - sampled[-1]["x"], point["y"] - sampled[-1]["y"]) < 5.0:
+                sampled[-1] = dict(point)
+            else:
+                sampled.append(dict(point))
+        return sampled
+
     def _sample_point_along_route_xy(self, points, progress_ratio):
         if not points:
             return None
@@ -3334,6 +3462,19 @@ class SwarmControlWidget(QWidget):
         staging_points = [dict(point) for point in (self._launch_staging_points or [])]
         if not staging_points:
             return planned
+        if len(planned) >= len(staging_points):
+            starts_with_staging = True
+            for planned_point, stage_point in zip(planned[: len(staging_points)], staging_points):
+                if math.hypot(planned_point["x"] - stage_point["x"], planned_point["y"] - stage_point["y"]) >= 8.0:
+                    starts_with_staging = False
+                    break
+            if starts_with_staging:
+                return planned
+        if planned and math.hypot(planned[0]["x"] - staging_points[0]["x"], planned[0]["y"] - staging_points[0]["y"]) < 8.0:
+            scan_limit = max(len(getattr(self, "_launch_staging_path", [])) + 4, len(staging_points) + 8, 12)
+            for planned_point in planned[:scan_limit]:
+                if math.hypot(planned_point["x"] - staging_points[-1]["x"], planned_point["y"] - staging_points[-1]["y"]) < 8.0:
+                    return planned
         merged = staging_points[:]
         if planned:
             first_planned = planned[0]
@@ -3681,6 +3822,7 @@ class SwarmControlWidget(QWidget):
             planned_path=self._display_planned_path(),
             regroup_points=self._regroup_points,
             staging_points=self._launch_staging_points,
+            staging_path=self._launch_staging_path,
             layering_zone=self._scenario_layering_zone,
             altitude_assignments=self._scenario_altitude_assignments,
             altitude_levels=self._scenario_altitude_levels,
