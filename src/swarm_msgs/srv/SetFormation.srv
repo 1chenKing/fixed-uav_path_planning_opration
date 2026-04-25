@@ -1,0 +1,7 @@
+string formation_type
+float32 spacing
+float32 heading_deg
+---
+bool success
+string message
+

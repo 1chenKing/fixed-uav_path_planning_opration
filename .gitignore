@@ -1,0 +1,37 @@
+# Catkin / ROS build outputs
+build/
+devel/
+install/
+.catkin_tools/
+.ros/
+log/
+logs/
+
+# Simulation and generated experiment artifacts
+results/
+tmp_video_frames/
+*.bag
+*.db3
+*.ulg
+*.mcap
+
+# PX4 and Gazebo generated/runtime files
+PX4_Firmware/
+*.log
+*.log.*
+*.pid
+*.lock
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Download leftovers
+wget-log*

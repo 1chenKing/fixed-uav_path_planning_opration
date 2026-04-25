@@ -1,0 +1,12 @@
+<launch>
+  <arg name="launch_mission_ui_backend" default="false" />
+  <arg name="enable_gazebo_sync" default="false" />
+
+  <node pkg="swarm_manager" type="swarm_manager_node.py" name="swarm_manager" output="screen" />
+  <node pkg="avoidance_2d" type="avoidance_2d_node.py" name="avoidance_2d" output="screen" />
+  <node pkg="formation_controller" type="formation_controller_node.py" name="formation_controller" output="screen">
+    <param name="enable_gazebo_sync" value="$(arg enable_gazebo_sync)" />
+  </node>
+  <node pkg="obstacle_manager" type="obstacle_manager_node.py" name="obstacle_manager" output="screen" />
+  <node if="$(arg launch_mission_ui_backend)" pkg="mission_ui" type="mission_ui_node.py" name="mission_ui" output="screen" />
+</launch>

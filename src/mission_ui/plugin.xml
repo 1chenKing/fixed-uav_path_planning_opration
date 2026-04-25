@@ -1,0 +1,17 @@
+<library path="src">
+  <class name="mission_ui/SwarmControlPlugin"
+         type="mission_ui.swarm_control_plugin.SwarmControlPlugin"
+         base_class_type="rqt_gui_py::Plugin">
+    <description>
+      固定翼集群控制面板，支持编队、任务锚点、障碍物和飞行模式控制。
+    </description>
+    <qtgui>
+      <group>
+        <label>集群</label>
+        <icon type="theme">applications-system</icon>
+        <statustip>固定翼多机任务控制</statustip>
+      </group>
+      <label>固定翼集群控制台</label>
+    </qtgui>
+  </class>
+</library>

@@ -1,0 +1,17 @@
+<launch>
+  <arg name="vehicle_count" default="2" />
+
+  <include file="$(find swarm_bringup)/launch/swarm_stack.launch" />
+
+  <include file="$(find swarm_bringup)/launch/swarm_namespaced.launch">
+    <arg name="vehicle_ns" value="uav_1" />
+    <arg name="fcu_url" value="udp://:14541@127.0.0.1:14581" />
+    <arg name="tgt_system" value="2" />
+  </include>
+
+  <include file="$(find swarm_bringup)/launch/swarm_namespaced.launch">
+    <arg name="vehicle_ns" value="uav_2" />
+    <arg name="fcu_url" value="udp://:14542@127.0.0.1:14582" />
+    <arg name="tgt_system" value="3" />
+  </include>
+</launch>

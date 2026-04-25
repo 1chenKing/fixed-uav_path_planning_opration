@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>swarm_bringup</name>
+  <version>0.0.1</version>
+  <description>Launch files for fixed-wing swarm simulation.</description>
+  <maintainer email="dev@example.com">dev</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>avoidance_2d</exec_depend>
+  <exec_depend>formation_controller</exec_depend>
+  <exec_depend>mission_ui</exec_depend>
+  <exec_depend>obstacle_manager</exec_depend>
+  <exec_depend>swarm_manager</exec_depend>
+</package>

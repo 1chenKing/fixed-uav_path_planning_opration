@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.0.2)
+project(formation_controller)
+
+find_package(catkin REQUIRED COMPONENTS
+  gazebo_msgs
+  geometry_msgs
+  rospy
+  swarm_msgs
+  visualization_msgs
+)
+
+catkin_package()
+
+catkin_install_python(PROGRAMS
+  scripts/formation_controller_node.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)

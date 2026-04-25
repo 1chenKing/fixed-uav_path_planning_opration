@@ -1,0 +1,14 @@
+<launch>
+  <arg name="vehicle_ns" default="uav_1" />
+  <arg name="fcu_url" default="udp://:14540@127.0.0.1:14580" />
+  <arg name="tgt_system" default="1" />
+
+  <group ns="$(arg vehicle_ns)">
+    <include file="$(find mavros)/launch/px4.launch">
+      <arg name="fcu_url" value="$(arg fcu_url)" />
+      <arg name="gcs_url" value="" />
+      <arg name="tgt_system" value="$(arg tgt_system)" />
+      <arg name="tgt_component" value="1" />
+    </include>
+  </group>
+</launch>

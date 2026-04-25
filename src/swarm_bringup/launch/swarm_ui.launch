@@ -1,0 +1,6 @@
+<launch>
+  <node pkg="mission_ui" type="mission_ui_node.py" name="mission_ui_backend" output="screen">
+    <param name="enable_prearm_param_push" value="false" />
+  </node>
+  <node pkg="mission_ui" type="mission_ground_station.py" name="mission_ground_station" output="screen" />
+</launch>
