@@ -106,12 +106,12 @@ def compute_formation_offsets(formation_type, spacing, vehicle_ids):
         if formation_type == "column":
             offset = (-spacing * index, 0.0)
         elif formation_type == "v_shape":
-            step = index // 2 + 1
+            pair_step = (index + 1) // 2
             side = -1.0 if index % 2 else 1.0
             offset = (
                 (0.0, 0.0)
                 if index == 0
-                else (-spacing * step * 0.82, side * spacing * step * 1.58)
+                else (-spacing * pair_step * 1.05, side * spacing * pair_step * 0.95)
             )
         elif formation_type == "echelon_left":
             offset = (-spacing * index, spacing * index)
@@ -3196,7 +3196,13 @@ class SwarmControlWidget(QWidget):
         stage_release_distance = float(getattr(self, "_formation_stage_release_distance", 0.0))
         vehicle_error = float(getattr(self, "_live_vehicle_formation_errors", {}).get(vehicle_id, 0.0))
         layered_v_shape = formation_type == "v_shape" and self._scenario_key == "layered_altitude_demo"
-        if formation_type != "column" and stage_release_distance > stage_hold_distance > 0.0 and vehicle_error > self._formation_error_threshold():
+        launch_staging_active = bool(getattr(self, "_launch_staging_points", []))
+        if (
+            not launch_staging_active
+            and formation_type != "column"
+            and stage_release_distance > stage_hold_distance > 0.0
+            and vehicle_error > self._formation_error_threshold()
+        ):
             hold_gain = 3.4 if layered_v_shape else 2.4
             release_gain = 5.8 if layered_v_shape else 4.2
             extra_hold = min(max(vehicle_error * hold_gain, spacing * (1.8 if layered_v_shape else 1.5)), max(spacing * (6.0 if layered_v_shape else 6.0), 220.0))
@@ -3224,36 +3230,15 @@ class SwarmControlWidget(QWidget):
             else:
                 if stage_release_distance > stage_hold_distance > 0.0:
                     if cumulative_distance <= stage_hold_distance:
-                        if formation_type == "line":
-                            transition_scale = 0.02
-                        elif formation_type == "v_shape":
-                            transition_scale = 0.0 if layered_v_shape else 0.03
-                        else:
-                            transition_scale = 0.05
+                        transition_scale = 0.0
+                    elif cumulative_distance >= stage_release_distance:
+                        transition_scale = 1.0
                     else:
-                        ramp_distance = max(
-                            stage_release_distance - stage_hold_distance,
-                            transition_distance
-                            * (
-                                1.8
-                                if formation_type == "line"
-                                else 2.6
-                                if layered_v_shape
-                                else 1.45
-                                if formation_type == "v_shape"
-                                else 1.0
-                            ),
-                        )
+                        ramp_distance = max(stage_release_distance - stage_hold_distance, 1.0)
                         transition_scale = min(
                             1.0,
                             max(
-                                0.06
-                                if formation_type == "line"
-                                else 0.015
-                                if layered_v_shape
-                                else 0.08
-                                if formation_type == "v_shape"
-                                else 0.10,
+                                0.0,
                                 (cumulative_distance - stage_hold_distance) / float(max(ramp_distance, 1.0)),
                             ),
                         )
@@ -3462,26 +3447,18 @@ class SwarmControlWidget(QWidget):
         staging_points = [dict(point) for point in (self._launch_staging_points or [])]
         if not staging_points:
             return planned
-        if len(planned) >= len(staging_points):
-            starts_with_staging = True
-            for planned_point, stage_point in zip(planned[: len(staging_points)], staging_points):
-                if math.hypot(planned_point["x"] - stage_point["x"], planned_point["y"] - stage_point["y"]) >= 8.0:
-                    starts_with_staging = False
-                    break
-            if starts_with_staging:
-                return planned
-        if planned and math.hypot(planned[0]["x"] - staging_points[0]["x"], planned[0]["y"] - staging_points[0]["y"]) < 8.0:
-            scan_limit = max(len(getattr(self, "_launch_staging_path", [])) + 4, len(staging_points) + 8, 12)
-            for planned_point in planned[:scan_limit]:
-                if math.hypot(planned_point["x"] - staging_points[-1]["x"], planned_point["y"] - staging_points[-1]["y"]) < 8.0:
-                    return planned
-        merged = staging_points[:]
-        if planned:
-            first_planned = planned[0]
-            last_stage = staging_points[-1]
-            if math.hypot(first_planned["x"] - last_stage["x"], first_planned["y"] - last_stage["y"]) < 8.0:
-                planned = planned[1:]
-        return merged + planned
+        last_stage = staging_points[-1]
+        best_index = None
+        best_distance = float("inf")
+        scan_limit = min(len(planned), max(len(getattr(self, "_launch_staging_path", [])) + 6, len(staging_points) + 12, 16))
+        for index, point in enumerate(planned[:scan_limit]):
+            distance = math.hypot(point["x"] - last_stage["x"], point["y"] - last_stage["y"])
+            if distance < best_distance:
+                best_distance = distance
+                best_index = index
+        if best_index is not None and best_distance < 12.0:
+            return [dict(last_stage)] + [dict(point) for point in planned[best_index + 1 :]]
+        return planned
 
     def _display_requested_path(self):
         requested = [dict(point) for point in (self._requested_task_path or [])]

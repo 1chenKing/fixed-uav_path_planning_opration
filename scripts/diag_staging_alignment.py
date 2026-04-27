@@ -103,6 +103,10 @@ def main():
         staging_path_count = len(widget._launch_staging_path)
         staging_collision = widget._route_has_collisions(widget._launch_staging_path, margin * 0.85)
         display_path = widget._display_planned_path()
+        formal_from_s3 = False
+        if staging_count >= 3 and display_path:
+            s3_point = widget._launch_staging_points[-1]
+            formal_from_s3 = math.hypot(display_path[0]["x"] - s3_point["x"], display_path[0]["y"] - s3_point["y"]) < 5.0
         duplicate_start = False
         if staging_count >= 3 and len(display_path) >= 6:
             first_stage = widget._launch_staging_points[0]
@@ -112,11 +116,12 @@ def main():
                 if math.hypot(point["x"] - first_stage["x"], point["y"] - first_stage["y"]) < 5.0
             ) > 1
         print(
-            "{} STAGING={} STAGE_PATH={} COLLISION={} DUP_START={} PLAN_POINTS={}".format(
+            "{} STAGING={} STAGE_PATH={} COLLISION={} FORMAL_FROM_S3={} DUP_START={} PLAN_POINTS={}".format(
                 formation_type,
                 staging_count,
                 staging_path_count,
                 staging_collision,
+                formal_from_s3,
                 duplicate_start,
                 len(widget._planned_task_path),
             ),
